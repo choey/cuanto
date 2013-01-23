@@ -21,7 +21,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 package cuanto
 
 
-class TestRunStats {  
+class TestRunStats {
 
 	static constraints = {
 		passed(nullable: true)
@@ -56,6 +56,10 @@ class TestRunStats {
     TestRun testRun
 
 	static hasMany = [analysisStatistics: AnalysisStatistic, tagStatistics:TagStatistic]
+
+	static mapping = {
+		tagStatistics(cascade: 'all-delete-orphan')
+	}
 
 	Map toJsonMap() {
 		def json = [:]
