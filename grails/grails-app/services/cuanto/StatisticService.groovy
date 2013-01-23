@@ -214,6 +214,7 @@ class StatisticService {
             TestRunStats.withTransaction {
                 def testRunStatistics = TestRunStats.findByTestRun(testRun)
 	            testRunStatistics?.tagStatistics?.clear()
+	            dataService.saveDomainObject(testRunStatistics, true)
 
                 def tagStats = getTagStatistics(testRun)
                 tagStats.each {
