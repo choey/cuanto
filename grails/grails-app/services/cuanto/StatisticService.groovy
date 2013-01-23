@@ -213,13 +213,7 @@ class StatisticService {
 
             TestRunStats.withTransaction {
                 def testRunStatistics = TestRunStats.findByTestRun(testRun)
-                if (testRunStatistics.tagStatistics?.size() > 0) {
-                    def statsToRemove = TagStatistic.findAllByTestRunStats(testRunStatistics)
-                    statsToRemove.each {
-                        testRunStatistics.removeFromTagStatistics(it).save()
-                        it.delete(flush:true)
-                    }
-                }
+	            testRunStatistics?.tagStatistics?.clear()
 
                 def tagStats = getTagStatistics(testRun)
                 tagStats.each {
