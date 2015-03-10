@@ -30,7 +30,7 @@ import java.util.Map;
 public class TestNgListener implements IResultListener {
 	private static final Logger logger = LoggerFactory.getLogger(TestNgListener.class);
 
-	private static TestNgListenerArguments failoverTestNgListenerArguments;
+	private static TestNgListenerArguments defaultTestNgListenerArguments;
 
 	private static final ThreadLocal<TestNgListenerArguments> testNgListenerArguments =
 		new ThreadLocal<TestNgListenerArguments>() {
@@ -59,14 +59,16 @@ public class TestNgListener implements IResultListener {
 	 * - cuanto.url: the url at which Cuanto is running; required
 	 * - cuanto.projectkey: the project key for which the tests run; required
 	 * - cuanto.testrun: the id of an existing TestRun to use; if null, a new TestRun will be created
+	 * - cuanto.testrun.perThread: whether to create a new test run per thread (used when cuanto.testrun is not defined)
 	 * - cuanto.testrun.properties: testProperties map in the form of key1:val1,key2:val2,...
 	 * - cuanto.testrun.links: links map in the form of cuanto:http://cuanto.codehaus.org,google:http://www.google.com
+	 * - cuanto.includeConfigDuration: whether to include the configuration method duration time as part of test duration
 	 *
 	 * @throws CuantoAdapterException      if the cuanto.url or cuanto.projectkey are not specified
 	 * @throws java.net.URISyntaxException if cuantoUrl is not a valid URI
 	 */
 	public TestNgListener() throws CuantoAdapterException, URISyntaxException {
-		failoverTestNgListenerArguments = getFailoverTestNgListenerArguments();
+		setDefaultTestNgListenerArguments(createDefaultTestNgListenerArguments());
 	}
 
 	/**
@@ -146,7 +148,7 @@ public class TestNgListener implements IResultListener {
 		synchronized (adapterModificationLock) {
 			URI currentThreadCuantoUrl = getTestNgListenerArguments().getCuantoUrl();
 			URI resolvedCuantoUrl = (currentThreadCuantoUrl == null)
-				? failoverTestNgListenerArguments.getCuantoUrl()
+				? defaultTestNgListenerArguments.getCuantoUrl()
 				: currentThreadCuantoUrl;
 
 			if (!isDefined(resolvedCuantoUrl))
@@ -163,7 +165,7 @@ public class TestNgListener implements IResultListener {
 		synchronized (adapterModificationLock) {
 			Long currentThreadTestRunId = getTestNgListenerArguments().getTestRunId();
 			return (currentThreadTestRunId == null)
-				? failoverTestNgListenerArguments.getTestRunId()
+				? defaultTestNgListenerArguments.getTestRunId()
 				: currentThreadTestRunId;
 		}
 	}
@@ -175,7 +177,7 @@ public class TestNgListener implements IResultListener {
 		synchronized (adapterModificationLock) {
 			String currentThreadProjectKey = getTestNgListenerArguments().getProjectKey();
 			String resolvedProjectKey = (currentThreadProjectKey == null)
-				? failoverTestNgListenerArguments.getProjectKey()
+				? defaultTestNgListenerArguments.getProjectKey()
 				: currentThreadProjectKey;
 
 			if (!isDefined(resolvedProjectKey))
@@ -192,7 +194,7 @@ public class TestNgListener implements IResultListener {
 		synchronized (adapterModificationLock) {
 			Map<String, String> currentThreadLinks = getTestNgListenerArguments().getLinks();
 			return (currentThreadLinks == null)
-				? failoverTestNgListenerArguments.getLinks()
+				? defaultTestNgListenerArguments.getLinks()
 				: currentThreadLinks;
 		}
 	}
@@ -204,19 +206,19 @@ public class TestNgListener implements IResultListener {
 		synchronized (adapterModificationLock) {
 			Map<String, String> currentThreadTestProperties = getTestNgListenerArguments().getTestProperties();
 			return (currentThreadTestProperties == null)
-				? failoverTestNgListenerArguments.getTestProperties()
+				? defaultTestNgListenerArguments.getTestProperties()
 				: currentThreadTestProperties;
 		}
 	}
 
 	/**
-	 * @return isCreateTestRun for the current thread
+	 * @return isCreateTestRunPerThread for the current thread
 	 */
-	public static Boolean isCreateTestRun() {
+	public static Boolean isCreateTestRunPerThread() {
 		synchronized (adapterModificationLock) {
-			Boolean currentThreadCreateTestRun = getTestNgListenerArguments().isCreateTestRun();
+			Boolean currentThreadCreateTestRun = getTestNgListenerArguments().isCreateTestRunPerThread();
 			return (currentThreadCreateTestRun == null)
-				? failoverTestNgListenerArguments.isCreateTestRun()
+				? defaultTestNgListenerArguments.isCreateTestRunPerThread()
 				: currentThreadCreateTestRun;
 		}
 	}
@@ -228,7 +230,7 @@ public class TestNgListener implements IResultListener {
 		synchronized (adapterModificationLock) {
 			Boolean currentThreadIncludeConfigDuration = getTestNgListenerArguments().isIncludeConfigDuration();
 			return (currentThreadIncludeConfigDuration == null)
-				? failoverTestNgListenerArguments.isIncludeConfigDuration()
+				? defaultTestNgListenerArguments.isIncludeConfigDuration()
 				: currentThreadIncludeConfigDuration;
 		}
 	}
@@ -251,7 +253,23 @@ public class TestNgListener implements IResultListener {
 		}
 	}
 
-	private void incrementTotalDuration(ITestResult iTestResult) {
+	/**
+	 * @return the failover configuration to be used in case per-thread configuration is not set
+	 */
+	public static TestNgListenerArguments getDefaultTestNgListenerArguments()
+	{
+		return defaultTestNgListenerArguments;
+	}
+
+	/**
+	 * @param defaultTestNgListenerArguments to set for all threads as default configuration
+	 */
+	public static void setDefaultTestNgListenerArguments(TestNgListenerArguments defaultTestNgListenerArguments)
+	{
+		TestNgListener.defaultTestNgListenerArguments = defaultTestNgListenerArguments;
+	}
+
+	protected void incrementTotalDuration(ITestResult iTestResult) {
 		Long elapsedTime = iTestResult.getEndMillis() - iTestResult.getStartMillis();
 		configDuration.set(configDuration.get() + elapsedTime);
 	}
@@ -262,19 +280,33 @@ public class TestNgListener implements IResultListener {
 	 * If cuanto.testrun is provided, attempt to parse that to Long. If not, create a new TestRun and use its id.
 	 *
 	 * @param cuanto    Cuanto connector
-	 * @param args      to use to determine the current test run
 	 * @return          the determined TestRun
 	 */
-	private TestRun determineTestRunId(CuantoConnector cuanto, TestNgListenerArguments args) {
+	protected TestRun determineTestRunId(CuantoConnector cuanto) {
 
 		Long testRunId = getTestRunId();
 
-		if (testRunId == null && isCreateTestRun()) {
+		if (testRunId == null) {
 			logger.info("TestRun id was not provided. Creating a new TestRun...");
 			testRunId = createTestRun(cuanto, getProjectKey());
-			logger.info("Created TestRun #" + testRunId);
-			args.setTestRunId(testRunId);
-			setTestNgListenerArguments(args);
+
+			synchronized (adapterModificationLock)
+			{
+				if (isCreateTestRunPerThread())
+				{
+					logger.info(
+						"Created TestRun #{} for the current thread [{}]",
+						testRunId, Thread.currentThread().getName());
+					getTestNgListenerArguments().setTestRunId(testRunId);
+				}
+				else
+				{
+					logger.info(
+						"Created TestRun #{} for all threads",
+						testRunId, Thread.currentThread().getName());
+					defaultTestNgListenerArguments.setTestRunId(testRunId);
+				}
+			}
 		}
 
 		if (testRunId == null)
@@ -304,7 +336,7 @@ public class TestNgListener implements IResultListener {
 	 * @param cuantoProjectKey for which to create a new TestRun
 	 * @return the id of the created TestRun
 	 */
-	private Long createTestRun(CuantoConnector cuanto, String cuantoProjectKey) {
+	protected Long createTestRun(CuantoConnector cuanto, String cuantoProjectKey) {
 		TestRun testRun = new TestRun(cuantoProjectKey);
 		testRun.setDateExecuted(new Date());
 		testRun.setNote("Created by " + this.getClass().getSimpleName());
@@ -317,7 +349,7 @@ public class TestNgListener implements IResultListener {
 	 * @param testCaseResult   ITestResult
 	 * @param cuantoTestResult TestResult
 	 */
-	private void createTestOutcome(ITestResult testCaseResult, TestResult cuantoTestResult) {
+	protected void createTestOutcome(ITestResult testCaseResult, TestResult cuantoTestResult) {
 		IClass testClass = testCaseResult.getTestClass();
 
 		// todo: TestNG bug?
@@ -335,7 +367,6 @@ public class TestNgListener implements IResultListener {
 		String[] tags = testCaseResult.getMethod().getGroups();
 		long duration = testCaseResult.getEndMillis() - testCaseResult.getStartMillis();
 
-		TestNgListenerArguments arguments = getTestNgListenerArguments();
 		duration += configDuration.get();
 		configDuration.set(0l);
 
@@ -346,13 +377,13 @@ public class TestNgListener implements IResultListener {
 
 		// because the user may have modified the Cuanto url or the test run arguments,
 		// lazily create the cuanto connector and determine the test run to which to submit this test outcome
-		TestRun testRun = null;
-		CuantoConnector cuanto = null;
+		TestRun testRun;
+		CuantoConnector cuanto;
 		synchronized (adapterModificationLock) {
 			String projectKey = getProjectKey();
 			String cuantoUrl = getCuantoUrl().toString();
 			cuanto = CuantoConnector.newInstance(cuantoUrl, projectKey);
-			testRun = determineTestRunId(cuanto, arguments);
+			testRun = determineTestRunId(cuanto);
 		}
 
 		cuanto.addTestOutcome(testOutcome, testRun);
@@ -365,7 +396,7 @@ public class TestNgListener implements IResultListener {
 	 * @return the stacktrace of the resulting exception
 	 */
 	@SuppressWarnings("ThrowableResultOfMethodCallIgnored")
-	private String getTestOutput(ITestResult testCaseResult) {
+	protected String getTestOutput(ITestResult testCaseResult) {
 		return getStackTrace(testCaseResult.getThrowable());
 	}
 
@@ -375,7 +406,7 @@ public class TestNgListener implements IResultListener {
 	 * @param throwable from which to get the stack trace
 	 * @return the stack trace of throwable
 	 */
-	private static String getStackTrace(Throwable throwable) {
+	protected String getStackTrace(Throwable throwable) {
 		if (throwable == null)
 			return null;
 
@@ -391,7 +422,7 @@ public class TestNgListener implements IResultListener {
 	 * @return failover TestNgListenerArguments
 	 * @throws URISyntaxException if cuanto.url is a malformed URI
 	 */
-	private static TestNgListenerArguments getFailoverTestNgListenerArguments() throws URISyntaxException {
+	protected TestNgListenerArguments createDefaultTestNgListenerArguments() throws URISyntaxException {
 		TestNgListenerArguments args = new TestNgListenerArguments();
 
 		// parse environment variables
@@ -400,7 +431,7 @@ public class TestNgListener implements IResultListener {
 		String cuantoTestRun = System.getProperty("cuanto.testrun");
 		String testRunPropertiesString = System.getProperty("cuanto.testrun.properties");
 		String testRunLinksString = System.getProperty("cuanto.testrun.links");
-		String cuantoCreateTestRun = System.getProperty("cuanto.testrun.create");
+		String testRunPerThread = System.getProperty("cuanto.testrun.perThread");
 		String includeConfigDuration = System.getProperty("cuanto.includeConfigDuration");
 
 		Map<String, String> testRunProperties = ArgumentParser.parseMap(testRunPropertiesString);
@@ -408,8 +439,8 @@ public class TestNgListener implements IResultListener {
 
 		args.setCuantoUrl(isDefined(cuantoUrl) ? new URI(cuantoUrl) : null);
         args.setTestRunId(isDefined(cuantoTestRun) ? Long.valueOf(cuantoTestRun) : null);
-        args.setCreateTestRun(isDefined(cuantoCreateTestRun) ? Boolean.valueOf(cuantoCreateTestRun) : null);
-		args.setIncludeConfigDuration(isDefined(includeConfigDuration) ? Boolean.valueOf(includeConfigDuration) : null);
+        args.setCreateTestRunPerThread(Boolean.valueOf(testRunPerThread));
+		args.setIncludeConfigDuration(Boolean.valueOf(includeConfigDuration));
 		args.setProjectKey(isDefined(cuantoProjectKey) ? cuantoProjectKey : null);
 		args.setTestProperties(isDefined(testRunProperties) ? testRunProperties : null);
 		args.setLinks(isDefined(testRunLinks) ? testRunLinks : null);
@@ -426,7 +457,7 @@ public class TestNgListener implements IResultListener {
 	 * @param property to determine whether it is defined.
 	 * @return         whether the given property is defined.
 	 */
-	private static boolean isDefined(Object property)
+	protected static boolean isDefined(Object property)
 	{
 		return property != null && !property.toString().trim().equals("");
 	}

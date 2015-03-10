@@ -23,8 +23,8 @@ public class TestNgListenerArguments {
 	// TestRun.properties
 	private Map<String, String> testProperties;
 
-	// whether to create a new TestRun if testRunId is null
-	private Boolean createTestRun;
+	// whether to create a new TestRun per thread if testRunId is null
+	private Boolean createTestRunPerThread;
 
 	// whether to consider configuration methods when calculating test run time
 	private Boolean includeConfigDuration;
@@ -36,7 +36,7 @@ public class TestNgListenerArguments {
 		cuantoUrl = arguments.getCuantoUrl();
 		testRunId = arguments.getTestRunId();
 		projectKey = arguments.getProjectKey();
-		createTestRun = arguments.isCreateTestRun();
+		createTestRunPerThread = arguments.isCreateTestRunPerThread();
 		includeConfigDuration = arguments.isIncludeConfigDuration();
 
 		Map<String, String> originalLinks = arguments.getLinks();
@@ -88,12 +88,12 @@ public class TestNgListenerArguments {
 		this.testProperties = testProperties;
 	}
 
-	public Boolean isCreateTestRun() {
-		return createTestRun;
+	public Boolean isCreateTestRunPerThread() {
+		return createTestRunPerThread;
 	}
 
-	public void setCreateTestRun(Boolean createTestRun) {
-		this.createTestRun = createTestRun;
+	public void setCreateTestRunPerThread(Boolean createTestRunPerThread) {
+		this.createTestRunPerThread = createTestRunPerThread;
 	}
 
 	public Boolean isIncludeConfigDuration() {
